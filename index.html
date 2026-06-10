@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Lei Catcher — Sunset Luau</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #1a0f2e;
+    overflow: hidden;
+    font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+    touch-action: none;
+  }
+  #wrap {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    display: block;
+    box-shadow: 0 0 60px rgba(255, 120, 60, 0.35);
+    border-radius: 6px;
+    max-width: 100vw;
+    max-height: 100vh;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game"></canvas></div>
+<script>
+(() => {
+"use strict";
+
+// ---------- Setup ----------
+const W = 800, H = 600;
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = (W * s) + "px";
+  canvas.style.height = (H * s) + "px";
+}
+addEventListener("resize", fit);
+fit();
+
+// ---------- Audio (tiny synth, no assets) ----------
+let actx = null;
+function beep(freq, dur = 0.08, type = "sine", vol = 0.15, slide = 0) {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), actx.currentTime + dur);
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+const sfx = {
+  catch:  () => beep(660 + Math.random() * 120, 0.09, "sine", 0.18, 200),
+  lei:    () => { beep(523, 0.12, "sine", 0.2); setTimeout(() => beep(659, 0.12, "sine", 0.2), 90); setTimeout(() => beep(784, 0.2, "sine", 0.2), 180); },
+  bonk:   () => beep(140, 0.25, "sawtooth", 0.25, -80),
+  golden: () => { beep(880, 0.1, "triangle", 0.2); setTimeout(() => beep(1175, 0.18, "triangle", 0.2), 80); },
+  over:   () => { beep(392, 0.2, "sine", 0.2); setTimeout(() => beep(330, 0.2, "sine", 0.2), 180); setTimeout(() => beep(262, 0.4, "sine", 0.2), 360); },
+};
+
+// ---------- Game state ----------
+const ST = { TITLE: 0, PLAY: 1, OVER: 2 };
+let state = ST.TITLE;
+let score = 0, lives = 3, level = 1;
+let combo = 0, comboTimer = 0;
+let leiProgress = 0;            // blossoms strung on current lei
+const LEI_SIZE = 8;             // blossoms per completed lei
+let leisDone = 0;
+let best = +(localStorage.getItem("leiCatcherBest") || 0);
+let shakeT = 0, flashT = 0;
+let t = 0;                      // global time (frames)
+
+const player = { x: W / 2, y: H - 78, w: 46, h: 64, vx: 0, speed: 6.2, face: 1, invuln: 0 };
+
+let drops = [];     // falling things
+let particles = [];
+let floaters = [];  // floating score text
+let spawnTimer = 0;
+
+const keys = {};
+addEventListener("keydown", e => {
+  if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," "].includes(e.key)) e.preventDefault();
+  keys[e.key] = true;
+  if ((state === ST.TITLE || state === ST.OVER) && (e.key === " " || e.key === "Enter")) start();
+});
+addEventListener("keyup", e => keys[e.key] = false);
+
+// touch / mouse: move toward pointer
+let pointerX = null;
+function ptr(e) {
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  pointerX = (cx - r.left) / r.width * W;
+}
+canvas.addEventListener("pointerdown", e => {
+  if (state !== ST.PLAY) { start(); return; }
+  ptr(e);
+});
+canvas.addEventListener("pointermove", e => { if (e.buttons || e.pointerType === "touch") ptr(e); });
+canvas.addEventListener("pointerup", () => pointerX = null);
+canvas.addEventListener("touchstart", e => { e.preventDefault(); if (state !== ST.PLAY) start(); else ptr(e); }, { passive: false });
+canvas.addEventListener("touchmove", e => { e.preventDefault(); ptr(e); }, { passive: false });
+canvas.addEventListener("touchend", () => pointerX = null);
+
+function start() {
+  state = ST.PLAY;
+  score = 0; lives = 3; level = 1;
+  combo = 0; comboTimer = 0;
+  leiProgress = 0; leisDone = 0;
+  drops = []; particles = []; floaters = [];
+  spawnTimer = 0;
+  player.x = W / 2; player.invuln = 0;
+  if (actx && actx.state === "suspended") actx.resume();
+  beep(523, 0.1, "sine", 0.15);
+}
+
+// ---------- Spawning ----------
+const ORCHID_COLORS = [
+  { petal: "#c75fd4", center: "#8a1fa0", deep: "#f3d3f7" }, // purple orchid
+  { petal: "#f7f3ee", center: "#b88ad6", deep: "#e9d8f5" }, // white orchid
+  { petal: "#ff8fc7", center: "#d4327e", deep: "#ffd6ea" }, // pink plumeria
+];
+
+function spawn() {
+  const speedBase = 1.6 + level * 0.45;
+  const r = Math.random();
+  const x = 30 + Math.random() * (W - 60);
+  if (r < 0.62) {
+    // orchid blossom
+    drops.push({
+      kind: "flower", x, y: -20,
+      vy: speedBase + Math.random() * 1.2,
+      vx: (Math.random() - 0.5) * 0.8,
+      sway: Math.random() * Math.PI * 2,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.08,
+      size: 15 + Math.random() * 5,
+      col: ORCHID_COLORS[(Math.random() * ORCHID_COLORS.length) | 0],
+    });
+  } else if (r < 0.66) {
+    // rare golden hibiscus — big points + extra blossom
+    drops.push({
+      kind: "golden", x, y: -20,
+      vy: speedBase * 1.25, vx: (Math.random() - 0.5) * 1.2,
+      sway: Math.random() * Math.PI * 2, rot: 0, vr: 0.1, size: 17,
+    });
+  } else if (r < 0.92) {
+    // coconut — dodge it!
+    drops.push({
+      kind: "coconut", x, y: -22,
+      vy: speedBase * (1.15 + level * 0.06) + Math.random(),
+      vx: (Math.random() - 0.5) * 1.5,
+      rot: 0, vr: (Math.random() - 0.5) * 0.2, size: 16,
+    });
+  } else {
+    // pineapple — bonus points
+    drops.push({
+      kind: "pineapple", x, y: -26,
+      vy: speedBase * 0.9, vx: (Math.random() - 0.5),
+      rot: 0, vr: (Math.random() - 0.5) * 0.06, size: 16,
+    });
+  }
+}
+
+// ---------- Particles ----------
+function burst(x, y, color, n = 12, spread = 3.5) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 0.5 + Math.random() * spread;
+    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, life: 30 + Math.random() * 20, color, size: 2 + Math.random() * 3 });
+  }
+}
+function floatText(x, y, txt, color = "#fff") {
+  floaters.push({ x, y, txt, color, life: 60 });
+}
+
+// ---------- Update ----------
+function update() {
+  t++;
+  if (state !== ST.PLAY) return;
+
+  // player movement
+  let move = 0;
+  if (keys["ArrowLeft"] || keys["a"] || keys["A"]) move -= 1;
+  if (keys["ArrowRight"] || keys["d"] || keys["D"]) move += 1;
+  if (pointerX !== null) {
+    const d = pointerX - player.x;
+    if (Math.abs(d) > 6) move = Math.sign(d);
+  }
+  player.vx = move * player.speed;
+  player.x = Math.max(28, Math.min(W - 28, player.x + player.vx));
+  if (move) player.face = move;
+  if (player.invuln > 0) player.invuln--;
+
+  // difficulty / spawning
+  const interval = Math.max(18, 52 - level * 4);
+  if (--spawnTimer <= 0) { spawn(); spawnTimer = interval + Math.random() * 12; }
+
+  // combo decay
+  if (comboTimer > 0) { comboTimer--; if (comboTimer === 0) combo = 0; }
+
+  // drops
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    d.y += d.vy;
+    d.sway !== undefined && (d.x += d.vx + Math.sin((t + d.sway * 60) * 0.05) * 0.6);
+    d.sway === undefined && (d.x += d.vx);
+    d.rot += d.vr;
+    if (d.x < 14) { d.x = 14; d.vx = Math.abs(d.vx); }
+    if (d.x > W - 14) { d.x = W - 14; d.vx = -Math.abs(d.vx); }
+
+    // catch zone: basket above player's head
+    const bx = player.x, by = player.y - 30;
+    const hit = Math.abs(d.x - bx) < 34 && Math.abs(d.y - by) < 26;
+
+    if (hit) {
+      if (d.kind === "coconut") {
+        if (player.invuln === 0) {
+          lives--; combo = 0; comboTimer = 0;
+          player.invuln = 90; shakeT = 18; flashT = 8;
+          burst(d.x, d.y, "#6b4a2f", 16, 4);
+          sfx.bonk();
+          floatText(d.x, d.y - 10, "BONK!", "#ff6b5e");
+          if (lives <= 0) gameOver();
+        }
+        drops.splice(i, 1);
+        continue;
+      }
+      // good catch
+      combo++; comboTimer = 150;
+      let pts = 0;
+      if (d.kind === "flower") {
+        pts = 10 * combo;
+        leiProgress++;
+        burst(d.x, d.y, d.col.petal, 10);
+        sfx.catch();
+      } else if (d.kind === "golden") {
+        pts = 50 * combo;
+        leiProgress += 2;
+        burst(d.x, d.y, "#ffd75e", 18, 4.5);
+        sfx.golden();
+      } else if (d.kind === "pineapple") {
+        pts = 30 * combo;
+        burst(d.x, d.y, "#ffce45", 14, 4);
+        sfx.golden();
+      }
+      score += pts;
+      floatText(d.x, d.y - 8, "+" + pts + (combo > 1 ? "  x" + combo : ""), combo > 3 ? "#ffd75e" : "#ffffff");
+
+      // lei completed?
+      while (leiProgress >= LEI_SIZE) {
+        leiProgress -= LEI_SIZE;
+        leisDone++;
+        score += 100 * level;
+        level = 1 + (leisDone / 2 | 0);
+        if (lives < 3 && leisDone % 3 === 0) { lives++; floatText(player.x, player.y - 80, "+1 LIFE", "#7dff9b"); }
+        floatText(player.x, player.y - 60, "LEI COMPLETE! +" + (100 * level), "#ff8fc7");
+        burst(player.x, player.y - 20, "#c75fd4", 26, 5);
+        burst(player.x, player.y - 20, "#ffffff", 16, 4);
+        sfx.lei();
+      }
+      drops.splice(i, 1);
+      continue;
+    }
+
+    // missed / hit ground
+    if (d.y > H - 38) {
+      if (d.kind === "flower" || d.kind === "golden") {
+        combo = 0; comboTimer = 0;
+        burst(d.x, H - 40, "#b9a07f", 5, 1.5);
+      } else if (d.kind === "coconut") {
+        burst(d.x, H - 40, "#d9c6a5", 6, 2);
+      }
+      drops.splice(i, 1);
+    }
+  }
+
+  // particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i];
+    f.y -= 0.8; f.life--;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+
+  if (shakeT > 0) shakeT--;
+  if (flashT > 0) flashT--;
+}
+
+function gameOver() {
+  state = ST.OVER;
+  if (score > best) { best = score; localStorage.setItem("leiCatcherBest", best); }
+  sfx.over();
+}
+
+// ---------- Drawing ----------
+function skyGrad() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#4a3a7a");
+  g.addColorStop(0.35, "#9c5b8f");
+  g.addColorStop(0.6, "#e8896b");
+  g.addColorStop(0.78, "#f7b267");
+  g.addColorStop(1, "#f9d29d");
+  return g;
+}
+
+function drawClouds() {
+  ctx.save();
+  const clouds = [
+    { x: 110, y: 90, s: 1.4, c: "rgba(255,170,140,0.55)" },
+    { x: 420, y: 60, s: 1.0, c: "rgba(255,190,170,0.45)" },
+    { x: 650, y: 130, s: 1.7, c: "rgba(250,150,120,0.5)" },
+    { x: 270, y: 160, s: 0.8, c: "rgba(255,210,180,0.5)" },
+  ];
+  for (const cl of clouds) {
+    const dx = (t * 0.1 * cl.s) % (W + 260) - 130;
+    ctx.fillStyle = cl.c;
+    const x = ((cl.x + dx) % (W + 260)) - 130;
+    for (const [ox, oy, r] of [[0,0,32],[28,6,24],[-30,8,22],[10,-12,20],[-12,-10,18]]) {
+      ctx.beginPath();
+      ctx.ellipse(x + ox * cl.s, cl.y + oy * cl.s, r * cl.s, r * 0.55 * cl.s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawSun() {
+  const sx = 600, sy = 195;
+  const g = ctx.createRadialGradient(sx, sy, 5, sx, sy, 90);
+  g.addColorStop(0, "rgba(255,235,180,0.95)");
+  g.addColorStop(0.4, "rgba(255,190,110,0.55)");
+  g.addColorStop(1, "rgba(255,160,90,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(sx - 90, sy - 90, 180, 180);
+  ctx.fillStyle = "#ffe9b8";
+  ctx.beginPath(); ctx.arc(sx, sy, 34, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawOcean() {
+  const g = ctx.createLinearGradient(0, 250, 0, 330);
+  g.addColorStop(0, "#e0876f");
+  g.addColorStop(1, "#9c5b7f");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 250, W, 80);
+  // glints
+  ctx.fillStyle = "rgba(255,230,180,0.4)";
+  for (let i = 0; i < 14; i++) {
+    const gx = (i * 67 + t * 0.4) % W;
+    const gy = 260 + (i * 37) % 60;
+    ctx.fillRect(gx, gy, 16 + (i % 3) * 8, 2);
+  }
+}
+
+function drawMountain() {
+  ctx.fillStyle = "#6e4d72";
+  ctx.beginPath();
+  ctx.moveTo(-20, 252);
+  ctx.lineTo(120, 150);
+  ctx.lineTo(230, 205);
+  ctx.lineTo(330, 252);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,170,130,0.25)";
+  ctx.beginPath();
+  ctx.moveTo(120, 150); ctx.lineTo(160, 175); ctx.lineTo(120, 200); ctx.closePath();
+  ctx.fill();
+}
+
+function drawBeach() {
+  const g = ctx.createLinearGradient(0, 330, 0, H);
+  g.addColorStop(0, "#e8c08e");
+  g.addColorStop(1, "#caa06b");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 330, W, H - 330);
+  // sand speckle
+  ctx.fillStyle = "rgba(120,85,50,0.18)";
+  for (let i = 0; i < 60; i++) {
+    ctx.fillRect((i * 131) % W, 350 + (i * 83) % (H - 380), 3, 2);
+  }
+}
+
+function drawTikiHut(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  // posts
+  ctx.fillStyle = "#7a5638";
+  ctx.fillRect(-60, -10, 10, 70);
+  ctx.fillRect(50, -10, 10, 70);
+  ctx.fillRect(-5, -10, 10, 70);
+  // counter
+  ctx.fillStyle = "#8f6a44";
+  ctx.fillRect(-70, 28, 140, 14);
+  ctx.fillStyle = "#6b4a2f";
+  ctx.fillRect(-70, 42, 140, 6);
+  // thatched roof (layered)
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = i % 2 ? "#a8854f" : "#96763f";
+    ctx.beginPath();
+    ctx.moveTo(0, -95 + i * 18);
+    ctx.lineTo(-88 - i * 4, -8 + i * 6);
+    ctx.lineTo(88 + i * 4, -8 + i * 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // roof texture strokes
+  ctx.strokeStyle = "rgba(90,65,30,0.45)";
+  ctx.lineWidth = 1.5;
+  for (let i = -7; i <= 7; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 4, -88);
+    ctx.lineTo(i * 12, 14);
+    ctx.stroke();
+  }
+  // tiki torches
+  for (const tx of [-95, 95]) {
+    ctx.fillStyle = "#5e4226";
+    ctx.fillRect(tx - 3, -20, 6, 90);
+    const fl = Math.sin(t * 0.3 + tx) * 3;
+    const fg = ctx.createRadialGradient(tx, -30, 2, tx, -30, 18);
+    fg.addColorStop(0, "rgba(255,220,120,0.9)");
+    fg.addColorStop(1, "rgba(255,120,40,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(tx - 18, -48, 36, 36);
+    ctx.fillStyle = "#ffb347";
+    ctx.beginPath();
+    ctx.ellipse(tx, -30 + fl * 0.3, 5, 10 + fl, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffe28a";
+    ctx.beginPath();
+    ctx.ellipse(tx, -27 + fl * 0.3, 2.5, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPalm(x, y, s, lean) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  // trunk
+  ctx.strokeStyle = "#7a5638";
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(lean * 18, -60, lean * 34, -110);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(60,40,20,0.4)";
+  ctx.lineWidth = 1.5;
+  for (let i = 1; i < 7; i++) {
+    const yy = -i * 15;
+    ctx.beginPath();
+    ctx.moveTo(lean * i * 4 - 6, yy);
+    ctx.lineTo(lean * i * 4 + 6, yy - 3);
+    ctx.stroke();
+  }
+  // fronds
+  const topX = lean * 34, topY = -110;
+  ctx.strokeStyle = "#3f7a4a";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 7; i++) {
+    const a = -Math.PI * 0.95 + i * (Math.PI * 0.95 / 6) + Math.sin(t * 0.02 + i) * 0.04;
+    ctx.beginPath();
+    ctx.moveTo(topX, topY);
+    ctx.quadraticCurveTo(
+      topX + Math.cos(a) * 38, topY + Math.sin(a) * 38 - 8,
+      topX + Math.cos(a) * 62, topY + Math.sin(a) * 62 + 16
+    );
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#6b4a2f";
+  for (const [ox, oy] of [[-6, -4], [5, -7], [0, 2]]) {
+    ctx.beginPath(); ctx.arc(topX + ox, topY + oy + 6, 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawOrchid(x, y, size, rot, col) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  for (let i = 0; i < 5; i++) {
+    ctx.rotate((Math.PI * 2) / 5);
+    ctx.fillStyle = col.petal;
+    ctx.beginPath();
+    ctx.ellipse(0, -size * 0.62, size * 0.34, size * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = col.deep;
+    ctx.beginPath();
+    ctx.ellipse(0, -size * 0.5, size * 0.15, size * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = col.center;
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#ffd75e";
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.1, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawGolden(x, y, size, rot) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, size * 1.8);
+  glow.addColorStop(0, "rgba(255,215,94,0.7)");
+  glow.addColorStop(1, "rgba(255,215,94,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(-size * 2, -size * 2, size * 4, size * 4);
+  for (let i = 0; i < 5; i++) {
+    ctx.rotate((Math.PI * 2) / 5);
+    ctx.fillStyle = "#ffce45";
+    ctx.beginPath();
+    ctx.ellipse(0, -size * 0.6, size * 0.36, size * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff0b8";
+    ctx.beginPath();
+    ctx.ellipse(0, -size * 0.48, size * 0.15, size * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#e0902a";
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawCoconut(x, y, size, rot) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = "#5e4226";
+  ctx.beginPath(); ctx.arc(0, 0, size, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#6b4a2f";
+  ctx.beginPath(); ctx.arc(-size * 0.25, -size * 0.25, size * 0.7, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(40,25,12,0.5)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.8, 0.4, 1.6); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.8, 2.5, 3.6); ctx.stroke();
+  ctx.fillStyle = "#3d2a17";
+  for (const [ox, oy] of [[-4, -5], [4, -5], [0, 2]]) {
+    ctx.beginPath(); ctx.arc(ox, oy, 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPineapple(x, y, size, rot) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = "#3f7a4a";
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.ellipse(i * 3, -size - 6, 3, 9, i * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#ffce45";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.72, size, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(180,120,30,0.6)";
+  ctx.lineWidth = 1.5;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.7, -size + Math.abs(i) * 3 + (i + 2) * size * 0.45);
+    ctx.lineTo(size * 0.7, -size + (i + 2) * size * 0.45 - 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(size * 0.7, -size + Math.abs(i) * 3 + (i + 2) * size * 0.45);
+    ctx.lineTo(-size * 0.7, -size + (i + 2) * size * 0.45 - 6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlayer() {
+  const { x, y } = player;
+  if (player.invuln > 0 && (player.invuln >> 2) % 2 === 0) return; // blink
+  ctx.save();
+  ctx.translate(x, y);
+  const bob = Math.sin(t * 0.15) * 1.5 + (Math.abs(player.vx) > 0.1 ? Math.sin(t * 0.5) * 2 : 0);
+  ctx.translate(0, bob * 0.4);
+
+  // shadow
+  ctx.fillStyle = "rgba(60,40,20,0.25)";
+  ctx.beginPath(); ctx.ellipse(0, 34, 26, 7, 0, 0, Math.PI * 2); ctx.fill();
+
+  // legs
+  ctx.fillStyle = "#caa06b";
+  ctx.fillRect(-10, 16, 8, 18);
+  ctx.fillRect(2, 16, 8, 18);
+  // grass skirt? no — board shorts
+  ctx.fillStyle = "#2e7d8f";
+  ctx.fillRect(-13, 6, 26, 14);
+  ctx.fillStyle = "#45a3b8";
+  ctx.fillRect(-13, 6, 26, 4);
+
+  // aloha shirt (gray-blue like the photo)
+  ctx.fillStyle = "#9fb3bd";
+  ctx.fillRect(-14, -18, 28, 26);
+  ctx.fillStyle = "#7d96a3";
+  for (const [ox, oy] of [[-8, -12], [4, -6], [-2, 0], [8, -14]]) {
+    ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  // arms up holding basket
+  ctx.fillStyle = "#e8b88a";
+  ctx.fillRect(-20, -26, 7, 18);
+  ctx.fillRect(13, -26, 7, 18);
+
+  // head
+  ctx.fillStyle = "#e8b88a";
+  ctx.beginPath(); ctx.arc(0, -28, 11, 0, Math.PI * 2); ctx.fill();
+  // hair
+  ctx.fillStyle = "#7a5a3a";
+  ctx.beginPath(); ctx.arc(0, -32, 11, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+  // face
+  ctx.fillStyle = "#3d2a17";
+  ctx.beginPath(); ctx.arc(-4 + player.face * 1.5, -29, 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(4 + player.face * 1.5, -29, 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#3d2a17";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(player.face * 1.5, -25, 4, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+
+  // lei around neck (progress shown as blossoms)
+  const leiCols = ["#c75fd4", "#f7f3ee", "#ff8fc7", "#c75fd4", "#f7f3ee", "#ff8fc7", "#c75fd4", "#f7f3ee"];
+  for (let i = 0; i < LEI_SIZE; i++) {
+    const a = Math.PI * (0.15 + 0.7 * i / (LEI_SIZE - 1));
+    const lx = Math.cos(a) * 14, ly = -16 + Math.sin(a) * 9;
+    if (i < leiProgress) {
+      ctx.fillStyle = leiCols[i];
+      ctx.beginPath(); ctx.arc(lx, ly, 3.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(138,31,160,0.7)";
+      ctx.beginPath(); ctx.arc(lx, ly, 1.4, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(lx, ly, 2.6, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // basket held overhead
+  ctx.fillStyle = "#a8854f";
+  ctx.beginPath();
+  ctx.moveTo(-26, -38);
+  ctx.lineTo(26, -38);
+  ctx.lineTo(18, -22);
+  ctx.lineTo(-18, -22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#6b4a2f";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 9 - 3, -38);
+    ctx.lineTo(i * 7 - 2, -22);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHUD() {
+  // score
+  ctx.fillStyle = "rgba(20,10,30,0.45)";
+  roundRect(12, 12, 200, 64, 10); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 24px 'Trebuchet MS'";
+  ctx.textAlign = "left";
+  ctx.fillText("SCORE  " + score, 24, 38);
+  ctx.font = "14px 'Trebuchet MS'";
+  ctx.fillStyle = "#ffd2a8";
+  ctx.fillText("BEST  " + best + "    LVL " + level, 24, 62);
+
+  // lives (hibiscus icons)
+  for (let i = 0; i < 3; i++) {
+    const lx = W - 40 - i * 36, ly = 34;
+    ctx.globalAlpha = i < lives ? 1 : 0.22;
+    drawOrchid(lx, ly, 13, t * 0.01, ORCHID_COLORS[0]);
+    ctx.globalAlpha = 1;
+  }
+
+  // lei progress bar
+  const bw = 220, bx = W / 2 - bw / 2, by = 20;
+  ctx.fillStyle = "rgba(20,10,30,0.45)";
+  roundRect(bx - 10, by - 8, bw + 20, 34, 10); ctx.fill();
+  ctx.font = "12px 'Trebuchet MS'";
+  ctx.fillStyle = "#ffd2a8";
+  ctx.textAlign = "center";
+  ctx.fillText("LEI  " + leisDone + " strung", W / 2, by + 2);
+  for (let i = 0; i < LEI_SIZE; i++) {
+    const px = bx + 14 + i * ((bw - 28) / (LEI_SIZE - 1));
+    if (i < leiProgress) {
+      drawOrchid(px, by + 14, 8, t * 0.02 + i, ORCHID_COLORS[i % 3]);
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(px, by + 14, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // combo
+  if (combo > 1) {
+    ctx.font = "bold " + Math.min(34, 18 + combo * 2) + "px 'Trebuchet MS'";
+    ctx.fillStyle = combo > 4 ? "#ffd75e" : "#ffb0d8";
+    ctx.textAlign = "center";
+    const pulse = 1 + Math.sin(t * 0.3) * 0.05;
+    ctx.save();
+    ctx.translate(W / 2, 86);
+    ctx.scale(pulse, pulse);
+    ctx.fillText("COMBO x" + combo, 0, 0);
+    ctx.restore();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawScene() {
+  ctx.fillStyle = skyGrad();
+  ctx.fillRect(0, 0, W, H);
+  drawSun();
+  drawClouds();
+  drawMountain();
+  drawOcean();
+  drawBeach();
+  drawPalm(70, 372, 1.1, -1);
+  drawPalm(740, 368, 0.95, 1);
+  drawTikiHut(400, 300, 1.15);
+}
+
+function drawTitle() {
+  drawScene();
+  ctx.fillStyle = "rgba(20,8,30,0.55)";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "center";
+  // floating orchids decoration
+  for (let i = 0; i < 7; i++) {
+    const a = t * 0.01 + i * 0.9;
+    drawOrchid(W / 2 + Math.cos(a) * (230 + i * 8), 170 + Math.sin(a * 1.3) * 30, 12 + (i % 3) * 3, a, ORCHID_COLORS[i % 3]);
+  }
+
+  ctx.fillStyle = "#ffd75e";
+  ctx.font = "bold 58px 'Trebuchet MS'";
+  ctx.fillText("LEI CATCHER", W / 2, 175);
+  ctx.fillStyle = "#ff8fc7";
+  ctx.font = "italic 26px 'Trebuchet MS'";
+  ctx.fillText("~ Sunset Luau ~", W / 2, 212);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "18px 'Trebuchet MS'";
+  ctx.fillText("Catch falling orchid blossoms in your basket", W / 2, 290);
+  ctx.fillText("to string leis. 8 blossoms = 1 lei!", W / 2, 316);
+
+  drawOrchid(W / 2 - 180, 360, 14, t * 0.02, ORCHID_COLORS[0]);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffd2a8"; ctx.font = "16px 'Trebuchet MS'";
+  ctx.fillText("Orchid +10 · builds your lei", W / 2 - 155, 365);
+  drawGolden(W / 2 - 180, 396, 13, t * 0.03);
+  ctx.fillStyle = "#ffd2a8";
+  ctx.fillText("Golden hibiscus +50 · counts double", W / 2 - 155, 401);
+  drawPineapple(W / 2 - 180, 434, 11, 0);
+  ctx.fillStyle = "#ffd2a8";
+  ctx.fillText("Pineapple +30 bonus", W / 2 - 155, 437);
+  drawCoconut(W / 2 - 180, 470, 12, t * 0.05);
+  ctx.fillStyle = "#ff9b8a";
+  ctx.fillText("Coconut — DODGE IT! (3 hits and the luau's over)", W / 2 - 155, 475);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = Math.sin(t * 0.1) > 0 ? "#fff" : "#ffd75e";
+  ctx.font = "bold 22px 'Trebuchet MS'";
+  ctx.fillText("PRESS SPACE or TAP TO PLAY", W / 2, 540);
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = "14px 'Trebuchet MS'";
+  ctx.fillText("← → or A/D to move · touch & drag on mobile", W / 2, 568);
+  if (best > 0) {
+    ctx.fillStyle = "#ffd75e";
+    ctx.font = "16px 'Trebuchet MS'";
+    ctx.fillText("Best: " + best, W / 2, 245);
+  }
+}
+
+function drawOver() {
+  drawScene();
+  for (const d of drops) drawDrop(d);
+  drawPlayer();
+  ctx.fillStyle = "rgba(20,8,30,0.65)";
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ff8fc7";
+  ctx.font = "bold 52px 'Trebuchet MS'";
+  ctx.fillText("ALOHA 'OE", W / 2, 220);
+  ctx.fillStyle = "#fff";
+  ctx.font = "26px 'Trebuchet MS'";
+  ctx.fillText("Score  " + score, W / 2, 280);
+  ctx.fillStyle = "#ffd2a8";
+  ctx.font = "20px 'Trebuchet MS'";
+  ctx.fillText("Leis strung: " + leisDone + "   ·   Level " + level, W / 2, 316);
+  if (score >= best && score > 0) {
+    ctx.fillStyle = "#ffd75e";
+    ctx.font = "bold 24px 'Trebuchet MS'";
+    ctx.fillText("★ NEW BEST! ★", W / 2, 356);
+  } else {
+    ctx.fillStyle = "#ffd75e";
+    ctx.font = "18px 'Trebuchet MS'";
+    ctx.fillText("Best: " + best, W / 2, 352);
+  }
+  ctx.fillStyle = Math.sin(t * 0.1) > 0 ? "#fff" : "#ffd75e";
+  ctx.font = "bold 22px 'Trebuchet MS'";
+  ctx.fillText("PRESS SPACE or TAP TO PLAY AGAIN", W / 2, 430);
+}
+
+function drawDrop(d) {
+  if (d.kind === "flower") drawOrchid(d.x, d.y, d.size, d.rot, d.col);
+  else if (d.kind === "golden") drawGolden(d.x, d.y, d.size, d.rot);
+  else if (d.kind === "coconut") drawCoconut(d.x, d.y, d.size, d.rot);
+  else if (d.kind === "pineapple") drawPineapple(d.x, d.y, d.size, d.rot);
+}
+
+function render() {
+  ctx.save();
+  if (shakeT > 0) {
+    ctx.translate((Math.random() - 0.5) * shakeT, (Math.random() - 0.5) * shakeT);
+  }
+
+  if (state === ST.TITLE) { drawTitle(); ctx.restore(); return; }
+  if (state === ST.OVER) { drawOver(); ctx.restore(); return; }
+
+  drawScene();
+  for (const d of drops) drawDrop(d);
+  drawPlayer();
+
+  for (const p of particles) {
+    ctx.globalAlpha = Math.min(1, p.life / 20);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  for (const f of floaters) {
+    ctx.globalAlpha = Math.min(1, f.life / 25);
+    ctx.fillStyle = f.color;
+    ctx.font = "bold 17px 'Trebuchet MS'";
+    ctx.textAlign = "center";
+    ctx.fillText(f.txt, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+
+  drawHUD();
+
+  if (flashT > 0) {
+    ctx.fillStyle = "rgba(255,60,40," + (flashT / 8 * 0.3) + ")";
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+}
+
+// ---------- Loop ----------
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+loop();
+
+})();
+</script>
+</body>
+</html>
