@@ -1,3 +1,14 @@
+# 🎮 Two games, one repo
+
+- 🧸 **Squishopoly** — Squishmallows & Babies Monopoly for two players: open
+  [`monopoly.html`](monopoly.html) (or `/monopoly.html` on the GitHub Pages site).
+  Houses are **Baby Bottles 🍼**, hotels are **Cuddle Castles 🏰**, jail is the
+  Playpen 🚼, money is Snuggle Bucks ₴, and the streets are Squishmallow squads
+  and baby gear. Built for date night: hot-seat play, dice animations, Lullaby
+  Cards 🎵, the Diaper Bag 🎒, a Nap Time pot 😴, building, mortgages, and
+  bankruptcy — last spouse standing wins.
+- 🌋 **Aloha Raiders II** — the shmup below, on `index.html`.
+
 # 🌋 Aloha Raiders II — Legends of the Islands
 
 A near-endless Raiden-style vertical shmup through Hawaiian mythology,
