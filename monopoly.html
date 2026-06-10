@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squishopoly — Squishmallows & Babies Monopoly</title>
+<style>
+:root{
+  --cream:#fff7ef; --paper:#fffdf9; --ink:#5a4a42; --soft:#8a7a72;
+  --p1:#e25885; --p2:#3f7fd4;
+  --brown:#b08968; --lblue:#a8d8ea; --pink:#f7a8c4; --orange:#ffb347;
+  --red:#ff6b6b; --yellow:#ffd93d; --green:#6bcb77; --dblue:#4d96ff;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  font-family:"Trebuchet MS","Comic Sans MS",Verdana,sans-serif;
+  background:linear-gradient(135deg,#ffe9f3 0%,#e8f4ff 50%,#fff6e0 100%);
+  color:var(--ink); min-height:100vh; padding:10px;
+}
+h1,h2,h3{font-weight:700;}
+button{
+  font-family:inherit; font-weight:700; color:var(--ink);
+  border:2px solid var(--ink); border-radius:12px; background:#fff;
+  padding:8px 14px; cursor:pointer; font-size:14px;
+  box-shadow:0 3px 0 rgba(90,74,66,.25); transition:transform .08s;
+}
+button:hover:not(:disabled){transform:translateY(-2px);}
+button:disabled{opacity:.35; cursor:not-allowed; box-shadow:none;}
+button.primary{background:#ffd9e6;}
+button.go{background:#d3f7d9;}
+button.warn{background:#ffe1c2;}
+
+#wrap{display:flex; gap:14px; justify-content:center; align-items:flex-start; flex-wrap:wrap;}
+
+/* ---------- BOARD ---------- */
+#boardBox{position:relative; width:min(96vw,86vh,900px); aspect-ratio:1;}
+#board{
+  display:grid; width:100%; height:100%;
+  grid-template-columns:1.55fr repeat(9,1fr) 1.55fr;
+  grid-template-rows:1.55fr repeat(9,1fr) 1.55fr;
+  background:var(--cream); border:4px solid var(--ink); border-radius:18px;
+  overflow:hidden; box-shadow:0 10px 30px rgba(90,74,66,.25);
+}
+.cell{
+  border:1px solid #d9c9bd; background:var(--paper); position:relative;
+  display:flex; align-items:stretch; font-size:clamp(5px,1.05vw,10px);
+  cursor:pointer; overflow:hidden;
+}
+.cell .inner{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; text-align:center; padding:2px; gap:1px; min-width:0;}
+.cell .bar{flex:0 0 18%; min-width:7px; min-height:7px;}
+.cell.south{flex-direction:column;}
+.cell.north{flex-direction:column-reverse;}
+.cell.west{flex-direction:row-reverse;}
+.cell.east{flex-direction:row;}
+.cell .emoji{font-size:clamp(10px,1.7vw,20px); line-height:1.1;}
+.cell .nm{font-weight:700; line-height:1.05; word-break:break-word;}
+.cell .pr{color:var(--soft);}
+.cell.corner{align-items:center; justify-content:center;}
+.cell.corner .inner{justify-content:center;}
+.cell.corner .emoji{font-size:clamp(16px,3vw,34px);}
+.cell.owned-0 .inner{box-shadow:inset 0 0 0 2px var(--p1); border-radius:4px;}
+.cell.owned-1 .inner{box-shadow:inset 0 0 0 2px var(--p2); border-radius:4px;}
+.cell.mortgaged .inner{opacity:.45;}
+.cell .builds{font-size:clamp(7px,1.2vw,13px); line-height:1;}
+.cell .tokens{position:absolute; bottom:1px; right:1px; font-size:clamp(11px,1.9vw,22px); line-height:1; display:flex; z-index:3; filter:drop-shadow(0 1px 1px rgba(0,0,0,.4));}
+.cell .tokens span{animation:bop .5s ease;}
+@keyframes bop{0%{transform:translateY(-12px) scale(1.4);}100%{transform:none;}}
+
+/* center */
+#center{
+  grid-column:2/11; grid-row:2/11; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:8px; padding:10px;
+  background:
+   radial-gradient(circle at 20% 20%, rgba(247,168,196,.25), transparent 40%),
+   radial-gradient(circle at 80% 80%, rgba(168,216,234,.3), transparent 40%),
+   var(--cream);
+  text-align:center;
+}
+#center h1{font-size:clamp(16px,3vw,34px); letter-spacing:1px;
+  background:linear-gradient(90deg,#e25885,#f4a261,#3f7fd4);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;}
+#center .sub{font-size:clamp(8px,1.2vw,13px); color:var(--soft); margin-top:-4px;}
+#turnBanner{font-size:clamp(12px,1.8vw,20px); font-weight:700;}
+#dice{font-size:clamp(30px,6vw,64px); line-height:1; min-height:1em; letter-spacing:6px;}
+#dice.rolling{animation:shake .12s infinite;}
+@keyframes shake{0%{transform:rotate(-6deg);}50%{transform:rotate(6deg);}100%{transform:rotate(-6deg);}}
+#rollMsg{font-size:clamp(9px,1.3vw,14px); min-height:1.2em; color:var(--soft);}
+#potBox{font-size:clamp(9px,1.3vw,14px); background:#fff; border:2px dashed var(--ink); border-radius:10px; padding:3px 10px;}
+#controls{display:flex; gap:8px; flex-wrap:wrap; justify-content:center;}
+#log{
+  width:92%; max-height:22%; overflow-y:auto; background:rgba(255,255,255,.8);
+  border:2px solid #e3d5ca; border-radius:10px; padding:4px 8px;
+  font-size:clamp(8px,1.1vw,12px); text-align:left;
+}
+#log p{margin:2px 0;}
+#log .t0{color:var(--p1);} #log .t1{color:var(--p2);}
+
+/* ---------- SIDEBAR ---------- */
+#side{width:300px; max-width:96vw; display:flex; flex-direction:column; gap:10px;}
+.pcard{background:#fff; border:3px solid var(--ink); border-radius:14px; padding:10px; box-shadow:0 6px 0 rgba(90,74,66,.15);}
+.pcard.active{outline:4px solid #ffd93d;}
+.pcard .head{display:flex; align-items:center; gap:8px; font-size:18px; font-weight:700;}
+.pcard .cash{font-size:22px; font-weight:700; margin:4px 0;}
+.pcard.p0 .head{color:var(--p1);} .pcard.p1 .head{color:var(--p2);}
+.pcard .props{display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;}
+.chip{width:10px; height:14px; border-radius:3px; border:1px solid rgba(0,0,0,.3); cursor:pointer;}
+.chip.m{opacity:.35;}
+.pcard .extra{font-size:11px; color:var(--soft); margin-top:4px;}
+#sideBtns{display:flex; gap:8px; flex-wrap:wrap;}
+
+/* ---------- MODAL ---------- */
+#overlay{
+  position:fixed; inset:0; background:rgba(90,74,66,.45); display:none;
+  align-items:center; justify-content:center; z-index:50; padding:12px;
+}
+#overlay.show{display:flex;}
+#modal{
+  background:var(--paper); border:4px solid var(--ink); border-radius:18px;
+  max-width:430px; width:100%; max-height:88vh; overflow-y:auto;
+  padding:18px; text-align:center; box-shadow:0 14px 40px rgba(0,0,0,.3);
+  animation:pop .18s ease;
+}
+@keyframes pop{0%{transform:scale(.85); opacity:0;}100%{transform:none; opacity:1;}}
+#modal h2{margin-bottom:8px;}
+#modal .big{font-size:46px; line-height:1.1;}
+#modalBody{margin:10px 0; font-size:14px;}
+#modalBtns{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:8px;}
+.deed{border:2px solid var(--ink); border-radius:10px; overflow:hidden; text-align:left; font-size:13px;}
+.deed .dhead{padding:8px; font-weight:700; text-align:center; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.35);}
+.deed table{width:100%; border-collapse:collapse;}
+.deed td{padding:3px 10px;}
+.deed td:last-child{text-align:right; font-weight:700;}
+.deed tr:nth-child(odd){background:#f7efe7;}
+
+/* manage list */
+.mrow{display:flex; align-items:center; gap:6px; border-bottom:1px dashed #d9c9bd; padding:5px 0; font-size:12px; text-align:left;}
+.mrow .sw{width:14px; height:14px; border-radius:4px; border:1px solid rgba(0,0,0,.3); flex:0 0 auto;}
+.mrow .mn{flex:1; font-weight:700;}
+.mrow button{font-size:11px; padding:3px 7px; border-radius:8px; box-shadow:none;}
+
+/* setup */
+#setup .tokpick{display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin:6px 0 14px;}
+#setup .tok{font-size:26px; padding:4px 8px; border:2px solid transparent; border-radius:10px; cursor:pointer; background:#fff;}
+#setup .tok.sel{border-color:var(--ink); background:#ffe9f3;}
+#setup input{font-family:inherit; font-size:16px; padding:6px 10px; border:2px solid var(--ink); border-radius:10px; width:80%;}
+.cardface{border:3px solid var(--ink); border-radius:14px; padding:16px; font-size:15px; font-weight:700;}
+.cardface.lullaby{background:#e8f0ff;}
+.cardface.diaper{background:#fff3d6;}
+@media (max-width:1240px){ #side{width:min(900px,96vw); flex-direction:row; flex-wrap:wrap;} .pcard{flex:1; min-width:260px;} }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="boardBox"><div id="board"></div></div>
+  <div id="side">
+    <div class="pcard p0" id="pcard0"></div>
+    <div class="pcard p1" id="pcard1"></div>
+    <div id="sideBtns">
+      <button onclick="openManage()">🏗️ Manage Properties</button>
+      <button onclick="openHelp()">❓ How to Play</button>
+    </div>
+  </div>
+</div>
+
+<div id="overlay"><div id="modal">
+  <h2 id="modalTitle"></h2>
+  <div id="modalBody"></div>
+  <div id="modalBtns"></div>
+</div></div>
+
+<script>
+"use strict";
+/* ============================== DATA ============================== */
+const GROUPS = {
+  brown:{c:"var(--brown)", hc:50}, lblue:{c:"var(--lblue)", hc:50},
+  pink:{c:"var(--pink)", hc:100}, orange:{c:"var(--orange)", hc:100},
+  red:{c:"var(--red)", hc:150},  yellow:{c:"var(--yellow)", hc:150},
+  green:{c:"var(--green)", hc:200}, dblue:{c:"var(--dblue)", hc:200},
+};
+function P(name,emoji,group,price,rents){return {type:"prop",name,emoji,group,price,rents,owner:null,houses:0,mortgaged:false};}
+function S(name,emoji){return {type:"stroller",name,emoji,price:200,owner:null,mortgaged:false};}
+function U(name,emoji){return {type:"util",name,emoji,price:150,owner:null,mortgaged:false};}
+
+const SQ = [
+  {type:"go",     name:"GO! Tummy Time", emoji:"👶"},
+  P("Burp Cloth Lane","🤱","brown",60,[2,10,30,90,160,250]),
+  {type:"diaper", name:"Diaper Bag", emoji:"🎒"},
+  P("Onesie Avenue","👕","brown",60,[4,20,60,180,320,450]),
+  {type:"tax",    name:"Diaper Duty Tax", emoji:"💩", amount:200},
+  S("Jogging Stroller","🏃"),
+  P("Binky Boulevard","🍼","lblue",100,[6,30,90,270,400,550]),
+  {type:"lullaby",name:"Lullaby Card", emoji:"🎵"},
+  P("Pacifier Place","😮","lblue",100,[6,30,90,270,400,550]),
+  P("Swaddle Street","🛌","lblue",120,[8,40,100,300,450,600]),
+  {type:"jail",   name:"The Playpen", emoji:"🚼"},
+  P("Cam the Cat Court","🐱","pink",140,[10,50,150,450,625,750]),
+  U("Bottle Warmer","♨️"),
+  P("Wendy the Frog Way","🐸","pink",140,[10,50,150,450,625,750]),
+  P("Fifi the Fox Freeway","🦊","pink",160,[12,60,180,500,700,900]),
+  S("Umbrella Stroller","☂️"),
+  P("Hans the Hedgehog Hwy","🦔","orange",180,[14,70,200,550,750,950]),
+  {type:"diaper", name:"Diaper Bag", emoji:"🎒"},
+  P("Avery the Duck Drive","🦆","orange",180,[14,70,200,550,750,950]),
+  P("Archie the Axolotl Ave","🌸","orange",200,[16,80,220,600,800,1000]),
+  {type:"parking",name:"Nap Time", emoji:"😴"},
+  P("Gordon the Shark Shores","🦈","red",220,[18,90,250,700,875,1050]),
+  {type:"lullaby",name:"Lullaby Card", emoji:"🎵"},
+  P("Maui the Pineapple Pkwy","🍍","red",220,[18,90,250,700,875,1050]),
+  P("Connor the Cow Corner","🐮","red",240,[20,100,300,750,925,1100]),
+  S("Double Stroller","👯"),
+  P("Piper the Penguin Place","🐧","yellow",260,[22,110,330,800,975,1150]),
+  P("Hoot the Owl Heights","🦉","yellow",260,[22,110,330,800,975,1150]),
+  U("White Noise Machine","🌊"),
+  P("Olga the Octopus Oasis","🐙","yellow",280,[24,120,360,850,1025,1200]),
+  {type:"gotojail",name:"Naughty Corner!", emoji:"😤"},
+  P("Nursery Nook","🧷","green",300,[26,130,390,900,1100,1275]),
+  P("Rocking Chair Ridge","🪑","green",300,[26,130,390,900,1100,1275]),
+  {type:"diaper", name:"Diaper Bag", emoji:"🎒"},
+  P("Bassinet Boulevard","🛏️","green",320,[28,150,450,1000,1200,1400]),
+  S("Travel System","✈️"),
+  {type:"lullaby",name:"Lullaby Card", emoji:"🎵"},
+  P("Squishmallow Square","🧸","dblue",350,[35,175,500,1100,1300,1500]),
+  {type:"tax",    name:"Daycare Fees", emoji:"🏫", amount:100},
+  P("Cuddle Castle Court","🏰","dblue",400,[50,200,600,1400,1700,2000]),
+];
+
+const LULLABY = [
+  {t:"Baby slept through the night! 🎉 Advance to GO and collect ₴200.", fx:{moveTo:0}},
+  {t:"Blowout diaper in the car seat. 🚗💩 Go directly to the Playpen!", fx:{jail:true}},
+  {t:"Squishmallow restock at the store! Race to Squishmallow Square.", fx:{moveTo:37}},
+  {t:"Take a stroll: advance to the nearest Stroller.", fx:{nearestStroller:true}},
+  {t:"Grandma visits and babysits for free. Collect ₴100.", fx:{money:100}},
+  {t:"You caved and bought the rare 24-inch Squishmallow. Pay ₴100.", fx:{money:-100}},
+  {t:"Baby's first laugh — everyone melts. 🥹 Collect ₴50 from the other player.", fx:{fromOther:50}},
+  {t:"Pediatrician copay. Pay ₴50.", fx:{money:-50}},
+  {t:"You forgot the diaper bag! Go back 3 spaces.", fx:{back:3}},
+  {t:"Your Squishmallow collection appraises WAY up! Collect ₴150.", fx:{money:150}},
+  {t:"Get Out of the Playpen Free! Keep this card. 🎟️", fx:{gooj:true}},
+  {t:"Daylight savings ruins the nap schedule. Pay ₴25 in coffee.", fx:{money:-25}},
+];
+const DIAPER = [
+  {t:"Baby shower! 🎁 Collect ₴200.", fx:{money:200}},
+  {t:"Found a vintage Squishmallow at a yard sale for $2. Collect ₴100.", fx:{money:100}},
+  {t:"Diaper subscription auto-renewed. Pay ₴75.", fx:{money:-75}},
+  {t:"Tax refund — child credit! Collect ₴150.", fx:{money:150}},
+  {t:"Sold outgrown onesies online. Collect ₴50.", fx:{money:50}},
+  {t:"Crib recall — replacement costs. Pay ₴100.", fx:{money:-100}},
+  {t:"Get Out of the Playpen Free! Keep this card. 🎟️", fx:{gooj:true}},
+  {t:"Date night! Babysitter fee: pay ₴60. Worth it. 💕", fx:{money:-60}},
+  {t:"Baby said 'mama' AND 'dada' on the same day. Both collect bragging rights — and you collect ₴20.", fx:{money:20}},
+  {t:"Hospital bill arrives 9 months late. Pay ₴100.", fx:{money:-100}},
+  {t:"Picture day! Pay ₴50 per Baby Bottle and ₴125 per Cuddle Castle for tiny outfits.", fx:{repairs:[50,125]}},
+  {t:"You win the Cutest Baby Contest! 🏆 Collect ₴100.", fx:{money:100}},
+  {t:"Advance to GO — crawling counts! Collect ₴200.", fx:{moveTo:0}},
+  {t:"Drew on the wall with permanent marker. Go directly to the Playpen!", fx:{jail:true}},
+];
+
+const DIE = ["","⚀","⚁","⚂","⚃","⚄","⚅"];
+const TOKENS = ["🧸","👶","🍼","🦄","🐸","🦊","🐙","🦖"];
+
+/* ============================== STATE ============================== */
+let players, cur, phase, doubles, lastRoll, pot, decks, gameOver=false;
+
+function newGame(p0,p1){
+  players = [
+    {i:0,name:p0.name,token:p0.token,cash:1500,pos:0,inJail:false,jailTurns:0,gooj:0},
+    {i:1,name:p1.name,token:p1.token,cash:1500,pos:0,inJail:false,jailTurns:0,gooj:0},
+  ];
+  cur=0; phase="roll"; doubles=0; lastRoll=7; pot=0; gameOver=false;
+  decks = {lullaby:shuffle([...LULLABY.keys()]), diaper:shuffle([...DIAPER.keys()])};
+  SQ.forEach(s=>{ if("owner" in s){s.owner=null; s.mortgaged=false;} if("houses" in s) s.houses=0; });
+  log(`🎀 New game! ${players[0].token} ${players[0].name} vs ${players[1].token} ${players[1].name}. Everyone starts with ₴1500.`);
+  renderAll(); updateControls();
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+const other = i=> 1-i;
+const fmt = n=> "₴"+n;
+
+/* ============================== BOARD RENDER ============================== */
+function gridPos(i){
+  if(i<=10) return {r:11, c:11-i};
+  if(i<=20) return {r:11-(i-10), c:1};
+  if(i<=30) return {r:1, c:i-19};
+  return {r:i-29, c:11};
+}
+function sideClass(i){
+  if(i===0||i===10||i===20||i===30) return "corner";
+  if(i<10) return "south"; if(i<20) return "west"; if(i<30) return "north"; return "east";
+}
+function buildBoard(){
+  const b=document.getElementById("board");
+  b.innerHTML="";
+  const center=document.createElement("div");
+  center.id="center";
+  center.innerHTML=`
+    <h1>🧸 SQUISHOPOLY 👶</h1>
+    <div class="sub">the Squishmallows &amp; Babies edition · houses are Baby Bottles 🍼 · hotels are Cuddle Castles 🏰</div>
+    <div id="turnBanner"></div>
+    <div id="dice">🎲</div>
+    <div id="rollMsg"></div>
+    <div id="potBox">😴 Nap Time pot: <b id="potAmt">₴0</b></div>
+    <div id="controls">
+      <button id="btnRoll" class="primary" onclick="doRoll()">🎲 Roll</button>
+      <button id="btnPay" class="warn" onclick="payOutOfJail()">Pay ₴50 (leave Playpen)</button>
+      <button id="btnGooj" class="warn" onclick="useGooj()">🎟️ Use card</button>
+      <button id="btnEnd" class="go" onclick="endTurn()">End Turn ➡️</button>
+    </div>
+    <div id="log"></div>`;
+  b.appendChild(center);
+  SQ.forEach((s,i)=>{
+    const d=document.createElement("div");
+    d.className="cell "+sideClass(i);
+    d.id="cell"+i;
+    const {r,c}=gridPos(i);
+    d.style.gridRow=r; d.style.gridColumn=c;
+    d.onclick=()=>inspect(i);
+    let bar="";
+    if(s.type==="prop") bar=`<div class="bar" style="background:${GROUPS[s.group].c}"></div>`;
+    d.innerHTML=`${bar}<div class="inner">
+        <span class="emoji">${s.emoji}</span>
+        <span class="nm">${s.name}</span>
+        ${s.price?`<span class="pr">₴${s.price}</span>`:""}
+        <span class="builds" id="bld${i}"></span>
+      </div><div class="tokens" id="tok${i}"></div>`;
+    if(sideClass(i)==="corner") d.classList.add("corner");
+    b.appendChild(d);
+  });
+}
+function renderSquare(i){
+  const s=SQ[i], d=document.getElementById("cell"+i);
+  d.classList.remove("owned-0","owned-1","mortgaged");
+  if("owner" in s && s.owner!==null){ d.classList.add("owned-"+s.owner); if(s.mortgaged) d.classList.add("mortgaged"); }
+  const bl=document.getElementById("bld"+i);
+  if(bl) bl.textContent = s.houses ? (s.houses===5 ? "🏰" : "🍼".repeat(s.houses)) : "";
+}
+function renderTokens(){
+  SQ.forEach((_,i)=>{
+    const t=document.getElementById("tok"+i);
+    t.innerHTML = players.filter(p=>p.pos===i).map(p=>`<span>${p.token}</span>`).join("");
+  });
+}
+function renderPlayers(){
+  players.forEach(p=>{
+    const el=document.getElementById("pcard"+p.i);
+    el.classList.toggle("active", p.i===cur && !gameOver);
+    const props=SQ.map((s,idx)=>({s,idx})).filter(o=>"owner" in o.s && o.s.owner===p.i);
+    const chips=props.map(o=>{
+      const col=o.s.type==="prop"?GROUPS[o.s.group].c:(o.s.type==="stroller"?"#888":"#bbb");
+      return `<div class="chip ${o.s.mortgaged?'m':''}" style="background:${col}" title="${o.s.name}" onclick="inspect(${o.idx})"></div>`;
+    }).join("");
+    el.innerHTML=`<div class="head"><span style="font-size:26px">${p.token}</span> ${p.name}</div>
+      <div class="cash">${fmt(p.cash)}</div>
+      <div class="props">${chips||'<span style="font-size:11px;color:var(--soft)">no properties yet</span>'}</div>
+      <div class="extra">${p.inJail?"🚼 In the Playpen · ":""}${p.gooj?`🎟️×${p.gooj} get-out-free · `:""}net worth ${fmt(netWorth(p))}</div>`;
+  });
+  document.getElementById("potAmt").textContent=fmt(pot);
+}
+function renderAll(){ SQ.forEach((_,i)=>renderSquare(i)); renderTokens(); renderPlayers();
+  document.getElementById("turnBanner").innerHTML=gameOver?"":`${players[cur].token} <span class="t${cur}">${players[cur].name}</span>'s turn`;
+}
+function log(msg,who){
+  const l=document.getElementById("log");
+  l.insertAdjacentHTML("afterbegin",`<p>${who!==undefined?`<b class="t${who}">${players[who].name}:</b> `:""}${msg}</p>`);
+  while(l.children.length>60) l.lastChild.remove();
+}
+function updateControls(){
+  const p=players[cur];
+  const debt=p.cash<0;
+  document.getElementById("btnRoll").disabled = gameOver || phase!=="roll" || debt;
+  document.getElementById("btnEnd").disabled  = gameOver || phase!=="end" || debt;
+  document.getElementById("btnPay").style.display  = (!gameOver && phase==="roll" && p.inJail && p.cash>=50)?"":"none";
+  document.getElementById("btnGooj").style.display = (!gameOver && phase==="roll" && p.inJail && p.gooj>0)?"":"none";
+  document.getElementById("rollMsg").textContent =
+    gameOver ? "Game over!" :
+    debt ? "⚠️ You're overdrawn! Mortgage or sell in Manage Properties (or go bankrupt)." :
+    p.inJail&&phase==="roll" ? `In the Playpen — roll doubles to escape (try ${p.jailTurns+1}/3)` :
+    doubles>0&&phase==="roll" ? "Doubles! Roll again 🎲🎲" : "";
+  if(debt) maybeBankrupt(p);
+}
+
+/* ============================== MODAL ============================== */
+function modal(title,bodyHTML,btns){
+  document.getElementById("modalTitle").innerHTML=title;
+  document.getElementById("modalBody").innerHTML=bodyHTML;
+  const bb=document.getElementById("modalBtns"); bb.innerHTML="";
+  btns.forEach(b=>{
+    const el=document.createElement("button");
+    el.innerHTML=b.label; el.className=b.cls||"";
+    el.onclick=()=>{ closeModal(); if(b.fn) b.fn(); };
+    bb.appendChild(el);
+  });
+  document.getElementById("overlay").classList.add("show");
+}
+function closeModal(){ document.getElementById("overlay").classList.remove("show"); }
+
+function deedHTML(i){
+  const s=SQ[i];
+  if(s.type==="prop"){
+    const g=GROUPS[s.group];
+    return `<div class="deed"><div class="dhead" style="background:${g.c}">${s.emoji} ${s.name}</div><table>
+      <tr><td>Price</td><td>${fmt(s.price)}</td></tr>
+      <tr><td>Rent</td><td>${fmt(s.rents[0])}</td></tr>
+      <tr><td>…with full color set</td><td>${fmt(s.rents[0]*2)}</td></tr>
+      <tr><td>With 1 🍼</td><td>${fmt(s.rents[1])}</td></tr>
+      <tr><td>With 2 🍼</td><td>${fmt(s.rents[2])}</td></tr>
+      <tr><td>With 3 🍼</td><td>${fmt(s.rents[3])}</td></tr>
+      <tr><td>With 4 🍼</td><td>${fmt(s.rents[4])}</td></tr>
+      <tr><td>With Cuddle Castle 🏰</td><td>${fmt(s.rents[5])}</td></tr>
+      <tr><td>Bottle cost (each)</td><td>${fmt(g.hc)}</td></tr>
+      <tr><td>Mortgage value</td><td>${fmt(s.price/2)}</td></tr>
+    </table></div>${ownerLine(s)}`;
+  }
+  if(s.type==="stroller"){
+    return `<div class="deed"><div class="dhead" style="background:#9c8a7d">${s.emoji} ${s.name}</div><table>
+      <tr><td>Price</td><td>₴200</td></tr>
+      <tr><td>Rent (1 stroller owned)</td><td>₴25</td></tr>
+      <tr><td>2 strollers</td><td>₴50</td></tr>
+      <tr><td>3 strollers</td><td>₴100</td></tr>
+      <tr><td>4 strollers</td><td>₴200</td></tr>
+      <tr><td>Mortgage value</td><td>₴100</td></tr>
+    </table></div>${ownerLine(s)}`;
+  }
+  if(s.type==="util"){
+    return `<div class="deed"><div class="dhead" style="background:#b5a8d4">${s.emoji} ${s.name}</div><table>
+      <tr><td>Price</td><td>₴150</td></tr>
+      <tr><td>Rent (1 owned)</td><td>4× dice roll</td></tr>
+      <tr><td>Rent (both owned)</td><td>10× dice roll</td></tr>
+      <tr><td>Mortgage value</td><td>₴75</td></tr>
+    </table></div>${ownerLine(s)}`;
+  }
+  return `<div style="font-size:40px">${s.emoji}</div><p>${descFor(s)}</p>`;
+}
+function ownerLine(s){
+  return `<p style="margin-top:8px;font-size:13px">${
+    s.owner===null ? "Unowned — land here to buy it!" :
+    `Owned by <b class="t${s.owner}">${players[s.owner].token} ${players[s.owner].name}</b>${s.mortgaged?" (mortgaged 💤)":""}`}</p>`;
+}
+function descFor(s){
+  switch(s.type){
+    case "go": return "Pass GO (Tummy Time) and collect ₴200 Snuggle Bucks!";
+    case "jail": return "The Playpen. Just visiting… for now.";
+    case "parking": return "Nap Time 😴 — land here and collect the whole pot of taxes & fees!";
+    case "gotojail": return "The Naughty Corner — go directly to the Playpen!";
+    case "tax": return `Pay ${fmt(s.amount)} into the Nap Time pot.`;
+    case "lullaby": return "Draw a Lullaby Card 🎵 — fate sings you a tune.";
+    case "diaper": return "Dig in the Diaper Bag 🎒 — you never know what's in there.";
+  }
+  return "";
+}
+function inspect(i){ modal(SQ[i].name, deedHTML(i), [{label:"Close"}]); }
+
+/* ============================== TURN FLOW ============================== */
+function rollDice(){ return [1+Math.floor(Math.random()*6), 1+Math.floor(Math.random()*6)]; }
+
+function doRoll(){
+  if(phase!=="roll"||gameOver) return;
+  phase="busy"; updateControls();
+  const d=rollDice();
+  const diceEl=document.getElementById("dice");
+  diceEl.classList.add("rolling");
+  let n=0;
+  const spin=setInterval(()=>{
+    diceEl.textContent=DIE[1+Math.floor(Math.random()*6)]+DIE[1+Math.floor(Math.random()*6)];
+    if(++n>7){ clearInterval(spin); diceEl.classList.remove("rolling");
+      diceEl.textContent=DIE[d[0]]+DIE[d[1]]; afterRoll(d); }
+  },70);
+}
+function afterRoll(d){
+  const p=players[cur], isD=d[0]===d[1], total=d[0]+d[1];
+  lastRoll=total;
+  if(p.inJail){
+    if(isD){
+      log(`rolled ${DIE[d[0]]}${DIE[d[1]]} — doubles! Escapes the Playpen! 🎉`,cur);
+      p.inJail=false; p.jailTurns=0; doubles=0;
+      moveBy(total,()=>{ phase="end"; renderPlayers(); updateControls(); });
+    }else{
+      p.jailTurns++;
+      if(p.jailTurns>=3){
+        log(`rolled ${DIE[d[0]]}${DIE[d[1]]} — third try! Pays ₴50 and crawls out.`,cur);
+        pay(p,50,"pot"); p.inJail=false; p.jailTurns=0;
+        moveBy(total,()=>{ phase="end"; renderPlayers(); updateControls(); });
+      }else{
+        log(`rolled ${DIE[d[0]]}${DIE[d[1]]} — no doubles. Still stuck in the Playpen (${p.jailTurns}/3).`,cur);
+        phase="end"; renderPlayers(); updateControls();
+      }
+    }
+    return;
+  }
+  if(isD) doubles++; else doubles=0;
+  if(doubles>=3){
+    log(`rolled three doubles in a row — straight to the Naughty Corner! 😱`,cur);
+    sendToJail(p); phase="end"; doubles=0; updateControls();
+    return;
+  }
+  log(`rolled ${DIE[d[0]]}${DIE[d[1]]} (${total})${isD?" — doubles!":""}`,cur);
+  moveBy(total,()=>{
+    if(gameOver) return;
+    phase = (doubles>0 && !players[cur].inJail) ? "roll" : "end";
+    renderPlayers(); updateControls();
+  });
+}
+function moveBy(n,done){
+  const p=players[cur];
+  let steps=n;
+  const tick=setInterval(()=>{
+    p.pos=(p.pos+1)%40;
+    if(p.pos===0){ p.cash+=200; log(`passes GO — collects ₴200! 👶💰`,cur); renderPlayers(); }
+    renderTokens();
+    if(--steps<=0){ clearInterval(tick); land(done); }
+  },220);
+}
+function moveTo(i,collectGo,done){
+  const p=players[cur];
+  if(collectGo && i<=p.pos && i!==p.pos){ /* passing go handled in steps below */ }
+  let steps=(i-p.pos+40)%40 || 40;
+  if(!collectGo){ p.pos=i; renderTokens(); land(done); return; }
+  const tick=setInterval(()=>{
+    p.pos=(p.pos+1)%40;
+    if(p.pos===0){ p.cash+=200; log(`passes GO — collects ₴200! 👶💰`,cur); renderPlayers(); }
+    renderTokens();
+    if(--steps<=0){ clearInterval(tick); land(done); }
+  },120);
+}
+function land(done){
+  const p=players[cur], s=SQ[p.pos];
+  done = done || (()=>{});
+  switch(s.type){
+    case "prop": case "stroller": case "util":
+      if(s.owner===null){
+        offerBuy(p.pos,done);
+      }else if(s.owner!==p.i && !s.mortgaged){
+        chargeRent(p,s,done);
+      }else{
+        if(s.owner===p.i) log(`lands on their own ${s.name}. Home sweet home. 🏡`,cur);
+        else log(`lands on mortgaged ${s.name} — no rent due. 💤`,cur);
+        done();
+      }
+      break;
+    case "tax":
+      log(`lands on ${s.name} ${s.emoji} — pays ${fmt(s.amount)} into the Nap Time pot.`,cur);
+      pay(p,s.amount,"pot"); done(); break;
+    case "parking":
+      if(pot>0){ log(`Nap Time! 😴 Collects the whole pot: ${fmt(pot)}!`,cur); p.cash+=pot; pot=0; }
+      else log(`Nap Time 😴 — but the pot is empty. Enjoy the rest anyway.`,cur);
+      renderPlayers(); done(); break;
+    case "gotojail":
+      log(`landed in the Naughty Corner! Go directly to the Playpen. 🚼`,cur);
+      sendToJail(p); done(); break;
+    case "lullaby": drawCard("lullaby",done); break;
+    case "diaper":  drawCard("diaper",done); break;
+    case "go":
+      log(`lands right on GO — extra tummy time!`,cur); done(); break;
+    default: done();
+  }
+  renderPlayers();
+}
+function sendToJail(p){
+  p.pos=10; p.inJail=true; p.jailTurns=0; doubles=0;
+  renderTokens(); renderPlayers();
+}
+function payOutOfJail(){
+  const p=players[cur];
+  if(!p.inJail||p.cash<50) return;
+  pay(p,50,"pot"); p.inJail=false; p.jailTurns=0;
+  log(`pays ₴50 to leave the Playpen.`,cur);
+  renderPlayers(); updateControls();
+}
+function useGooj(){
+  const p=players[cur];
+  if(!p.inJail||p.gooj<1) return;
+  p.gooj--; p.inJail=false; p.jailTurns=0;
+  log(`uses a Get Out of the Playpen Free card! 🎟️`,cur);
+  renderPlayers(); updateControls();
+}
+function endTurn(){
+  if(phase!=="end"||gameOver) return;
+  if(players[cur].cash<0) return;
+  doubles=0;
+  cur=other(cur);
+  phase="roll";
+  log(`— ${players[cur].token} ${players[cur].name}'s turn —`);
+  renderAll(); updateControls();
+}
+
+/* ============================== MONEY ============================== */
+function pay(p,amount,to){
+  p.cash-=amount;
+  if(to==="pot") pot+=amount;
+  else if(typeof to==="number") players[to].cash+=amount;
+  renderPlayers(); updateControls();
+}
+function netWorth(p){
+  let nw=p.cash;
+  SQ.forEach(s=>{
+    if("owner" in s && s.owner===p.i){
+      if(!s.mortgaged) nw+=s.price/2;
+      if(s.houses) nw+=s.houses*GROUPS[s.group].hc/2;
+    }
+  });
+  return nw;
+}
+function maybeBankrupt(p){
+  if(netWorth(p)<0 && !gameOver){
+    const w=players[other(p.i)];
+    gameOver=true;
+    log(`${p.name} is out of Snuggle Bucks AND out of squish. Bankrupt! 💔`);
+    modal("🏆 GAME OVER 🏆",
+      `<div class="big">${w.token}</div>
+       <p style="font-size:18px;margin:8px 0"><b class="t${w.i}">${w.name}</b> wins Squishopoly!</p>
+       <p>${p.name} went bankrupt with a net worth of ${fmt(netWorth(p))}.</p>`,
+      [{label:"🔁 Play Again", cls:"primary", fn:()=>showSetup()},{label:"Close"}]);
+    renderAll(); updateControls();
+  }
+}
+
+/* ============================== BUY / RENT ============================== */
+function offerBuy(i,done){
+  const s=SQ[i], p=players[cur];
+  const canAfford=p.cash>=s.price;
+  modal(`For Sale: ${s.name}`, deedHTML(i)+(canAfford?"":`<p style="color:#c0392b">Not enough Snuggle Bucks! (you have ${fmt(p.cash)})</p>`),
+    [
+      {label:`Buy for ${fmt(s.price)} 💸`, cls:canAfford?"primary":"", fn:canAfford?()=>{
+        p.cash-=s.price; s.owner=p.i;
+        log(`buys ${s.emoji} ${s.name} for ${fmt(s.price)}!`,cur);
+        renderSquare(i); renderPlayers(); done();
+      }:()=>{ log(`can't afford ${s.name}. 😢`,cur); done(); }},
+      {label:"No thanks", fn:()=>{ log(`passes on ${s.name}.`,cur); done(); }},
+    ]);
+}
+function groupSquares(g){ return SQ.filter(s=>s.type==="prop"&&s.group===g); }
+function ownsGroup(pi,g){ return groupSquares(g).every(s=>s.owner===pi); }
+function strollerCount(pi){ return SQ.filter(s=>s.type==="stroller"&&s.owner===pi&&true).length; }
+function utilCount(pi){ return SQ.filter(s=>s.type==="util"&&s.owner===pi).length; }
+
+function rentFor(s){
+  const o=s.owner;
+  if(s.type==="prop"){
+    if(s.houses>0) return s.rents[s.houses];
+    return ownsGroup(o,s.group) ? s.rents[0]*2 : s.rents[0];
+  }
+  if(s.type==="stroller") return 25*Math.pow(2,strollerCount(o)-1);
+  if(s.type==="util") return lastRoll*(utilCount(o)===2?10:4);
+  return 0;
+}
+function chargeRent(p,s,done){
+  const r=rentFor(s);
+  const o=players[s.owner];
+  const why = s.type==="util" ? ` (${utilCount(s.owner)===2?10:4}× your roll of ${lastRoll})`
+    : s.type==="prop"&&s.houses===5 ? " — full Cuddle Castle rate! 🏰"
+    : s.type==="prop"&&s.houses>0 ? ` (${s.houses} Baby Bottle${s.houses>1?"s":""} 🍼)`
+    : s.type==="prop"&&ownsGroup(s.owner,s.group) ? " (full color set — double rent!)"
+    : "";
+  modal(`Rent due! ${s.emoji}`,
+    `<p><b>${s.name}</b> belongs to <b class="t${o.i}">${o.token} ${o.name}</b>.</p>
+     <p style="font-size:22px;margin:8px 0">Pay <b>${fmt(r)}</b></p><p style="font-size:12px;color:var(--soft)">${why}</p>`,
+    [{label:`Pay ${fmt(r)} 😭`, cls:"warn", fn:()=>{
+      pay(p,r,o.i);
+      log(`pays ${fmt(r)} rent to ${o.name} for ${s.name}${why}.`,cur);
+      done();
+    }}]);
+}
+
+/* ============================== CARDS ============================== */
+function drawCard(deck,done){
+  const list=deck==="lullaby"?LULLABY:DIAPER;
+  if(decks[deck].length===0) decks[deck]=shuffle([...list.keys()]);
+  const card=list[decks[deck].shift()];
+  modal(deck==="lullaby"?"🎵 Lullaby Card":"🎒 Diaper Bag",
+    `<div class="cardface ${deck}">${card.t}</div>`,
+    [{label:"OK", cls:"primary", fn:()=>applyCard(card,done)}]);
+}
+function applyCard(card,done){
+  const p=players[cur], fx=card.fx;
+  if(fx.money!==undefined){
+    if(fx.money>=0){ p.cash+=fx.money; log(`collects ${fmt(fx.money)}. 🎉`,cur); }
+    else { pay(p,-fx.money,"pot"); log(`pays ${fmt(-fx.money)} into the Nap Time pot.`,cur); }
+    renderPlayers(); done(); return;
+  }
+  if(fx.fromOther){ pay(players[other(cur)],fx.fromOther,cur); log(`collects ${fmt(fx.fromOther)} from ${players[other(cur)].name}! 💕`,cur); done(); return; }
+  if(fx.gooj){ p.gooj++; log(`tucks away a Get Out of the Playpen Free card. 🎟️`,cur); renderPlayers(); done(); return; }
+  if(fx.jail){ sendToJail(p); log(`is sent straight to the Playpen!`,cur); done(); return; }
+  if(fx.moveTo!==undefined){ moveTo(fx.moveTo,true,done); return; }
+  if(fx.back){ p.pos=(p.pos-fx.back+40)%40; renderTokens(); log(`shuffles back ${fx.back} spaces. 🔙`,cur); land(done); return; }
+  if(fx.nearestStroller){
+    let i=p.pos;
+    do{ i=(i+1)%40; }while(SQ[i].type!=="stroller");
+    moveTo(i,true,done); return;
+  }
+  if(fx.repairs){
+    let bottles=0,castles=0;
+    SQ.forEach(s=>{ if(s.type==="prop"&&s.owner===p.i){ if(s.houses===5)castles++; else bottles+=s.houses; }});
+    const cost=bottles*fx.repairs[0]+castles*fx.repairs[1];
+    if(cost>0){ pay(p,cost,"pot"); log(`pays ${fmt(cost)} for picture day (${bottles} 🍼, ${castles} 🏰).`,cur); }
+    else log(`has no Bottles or Castles — picture day is free! 📸`,cur);
+    done(); return;
+  }
+  done();
+}
+
+/* ============================== MANAGE ============================== */
+function canBuild(s){
+  if(s.type!=="prop"||s.owner!==cur||s.houses>=5) return false;
+  const g=groupSquares(s.group);
+  if(!ownsGroup(cur,s.group)) return false;
+  if(g.some(x=>x.mortgaged)) return false;
+  const minH=Math.min(...g.map(x=>x.houses));
+  return s.houses===minH && players[cur].cash>=GROUPS[s.group].hc;
+}
+function canSellBuild(s){
+  if(s.type!=="prop"||s.owner!==cur||s.houses===0) return false;
+  const maxH=Math.max(...groupSquares(s.group).map(x=>x.houses));
+  return s.houses===maxH;
+}
+function canMortgage(s){ return s.owner===cur && !s.mortgaged && (s.type!=="prop"||groupSquares(s.group).every(x=>x.houses===0)); }
+function canUnmortgage(s){ return s.owner===cur && s.mortgaged && players[cur].cash>=Math.ceil(s.price*0.55); }
+
+function openManage(){
+  if(gameOver) return;
+  const p=players[cur];
+  const rows=SQ.map((s,i)=>({s,i})).filter(o=>"owner" in o.s && o.s.owner===p.i);
+  if(rows.length===0){ modal("🏗️ Manage Properties","<p>You don't own anything yet — go shopping! 🛍️</p>",[{label:"Close"}]); return; }
+  const html=rows.map(({s,i})=>{
+    const col=s.type==="prop"?GROUPS[s.group].c:(s.type==="stroller"?"#9c8a7d":"#b5a8d4");
+    const hc=s.type==="prop"?GROUPS[s.group].hc:0;
+    const btns=[
+      canBuild(s)?`<button onclick="build(${i})">+🍼 ${fmt(hc)}</button>`:"",
+      canSellBuild(s)?`<button onclick="sellBuild(${i})">−🍼 +${fmt(hc/2)}</button>`:"",
+      canMortgage(s)?`<button onclick="mortgage(${i})">Mortgage +${fmt(s.price/2)}</button>`:"",
+      canUnmortgage(s)?`<button onclick="unmortgage(${i})">Unmortgage −${fmt(Math.ceil(s.price*0.55))}</button>`:"",
+      s.mortgaged&&!canUnmortgage(s)?`<span style="font-size:10px;color:var(--soft)">mortgaged 💤</span>`:"",
+    ].join("");
+    const stat=s.type==="prop"?(s.houses===5?"🏰":"🍼".repeat(s.houses)):"";
+    return `<div class="mrow"><div class="sw" style="background:${col}"></div>
+      <div class="mn">${s.emoji} ${s.name} ${stat}</div>${btns}</div>`;
+  }).join("");
+  modal(`🏗️ ${p.token} ${p.name} — ${fmt(p.cash)}`,
+    `<p style="font-size:11px;color:var(--soft);margin-bottom:6px">Build Baby Bottles 🍼 on full color sets (evenly). 5th build upgrades to a Cuddle Castle 🏰. Mortgage for quick cash; unmortgage costs +10%.</p>${html}`,
+    [{label:"Done"}]);
+}
+function build(i){ const s=SQ[i]; if(!canBuild(s))return;
+  players[cur].cash-=GROUPS[s.group].hc; s.houses++;
+  log(`builds ${s.houses===5?"a Cuddle Castle 🏰":"a Baby Bottle 🍼"} on ${s.name}.`,cur);
+  renderSquare(i); renderPlayers(); updateControls(); openManage(); }
+function sellBuild(i){ const s=SQ[i]; if(!canSellBuild(s))return;
+  players[cur].cash+=GROUPS[s.group].hc/2; s.houses--;
+  log(`sells a build on ${s.name} for ${fmt(GROUPS[s.group].hc/2)}.`,cur);
+  renderSquare(i); renderPlayers(); updateControls(); openManage(); }
+function mortgage(i){ const s=SQ[i]; if(!canMortgage(s))return;
+  s.mortgaged=true; players[cur].cash+=s.price/2;
+  log(`mortgages ${s.name} for ${fmt(s.price/2)}. 💤`,cur);
+  renderSquare(i); renderPlayers(); updateControls(); openManage(); }
+function unmortgage(i){ const s=SQ[i]; if(!canUnmortgage(s))return;
+  const cost=Math.ceil(s.price*0.55); s.mortgaged=false; players[cur].cash-=cost;
+  log(`unmortgages ${s.name} for ${fmt(cost)}.`,cur);
+  renderSquare(i); renderPlayers(); updateControls(); openManage(); }
+
+/* ============================== HELP / SETUP ============================== */
+function openHelp(){
+  modal("❓ How to Play Squishopoly",
+   `<div style="text-align:left;font-size:13px;line-height:1.5">
+    <p>🎲 <b>Take turns</b> on one screen. Roll, move, and do what the square says. Doubles = roll again (three in a row = Playpen!).</p>
+    <p>🏠 <b>Buy</b> Squishmallow squads, baby streets, Strollers and gadgets when you land on them. Own a full color set to charge double rent and start building.</p>
+    <p>🍼 <b>Baby Bottles are houses.</b> Build up to 4 per property (evenly across the set), then the 5th build becomes a <b>Cuddle Castle 🏰</b> (hotel).</p>
+    <p>🚼 <b>The Playpen is jail.</b> Escape with doubles (3 tries), ₴50, or a 🎟️ card.</p>
+    <p>😴 <b>Nap Time pot:</b> taxes and card fees pile up — land on Nap Time to grab it all.</p>
+    <p>🎵🎒 <b>Lullaby Cards & the Diaper Bag</b> bring chaos, cash, and cuteness.</p>
+    <p>💔 <b>Win</b> by bankrupting your sweetheart. Lovingly.</p>
+    </div>`,
+   [{label:"Got it! 💪"}]);
+}
+let setupSel=[0,1];
+function showSetup(){
+  const pick=(pi)=>TOKENS.map((t,ti)=>
+    `<span class="tok ${setupSel[pi]===ti?'sel':''}" onclick="pickTok(${pi},${ti})">${t}</span>`).join("");
+  modal("🧸 SQUISHOPOLY 👶",
+   `<div id="setup">
+      <p style="margin-bottom:10px">The Squishmallows &amp; Babies Monopoly — two players, one screen, zero mercy. 💕</p>
+      <h3 style="color:var(--p1)">Player 1</h3>
+      <input id="n0" placeholder="Name" value="${players?players[0].name:"Brian"}" maxlength="12">
+      <div class="tokpick" id="tp0">${pick(0)}</div>
+      <h3 style="color:var(--p2)">Player 2</h3>
+      <input id="n1" placeholder="Name" value="${players?players[1].name:"My Love"}" maxlength="12">
+      <div class="tokpick" id="tp1">${pick(1)}</div>
+    </div>`,
+   [{label:"Start the Squishdown! 🎀", cls:"primary", fn:()=>{
+      newGame(
+        {name:grabName("n0","Player 1"), token:TOKENS[setupSel[0]]},
+        {name:grabName("n1","Player 2"), token:TOKENS[setupSel[1]]});
+   }}]);
+}
+let lastNames={n0:"Brian",n1:"My Love"};
+function grabName(id,fallback){ return lastNames[id]||fallback; }
+function pickTok(pi,ti){
+  if(setupSel[other(pi)]===ti) return;
+  setupSel[pi]=ti;
+  document.querySelectorAll(`#tp${pi} .tok`).forEach((el,j)=>el.classList.toggle("sel",j===ti));
+}
+// keep typed names even after modal re-render
+document.addEventListener("input",e=>{ if(e.target.id==="n0"||e.target.id==="n1") lastNames[e.target.id]=e.target.value.trim(); });
+
+/* ============================== BOOT ============================== */
+buildBoard();
+newGame({name:"Brian",token:TOKENS[0]},{name:"My Love",token:TOKENS[1]});
+showSetup();
+</script>
+</body>
+</html>
