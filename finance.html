@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brian's Financial Command Center</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a212b;
+    --panel2: #222b38;
+    --line: #2e3a4a;
+    --text: #e8eef5;
+    --muted: #8fa1b5;
+    --green: #3ddc84;
+    --red: #ff6b6b;
+    --blue: #4dabf7;
+    --gold: #ffd43b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    padding: 20px 16px 12px;
+    text-align: center;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 1.5rem; letter-spacing: 0.5px; }
+  header p { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+  nav {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 8px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  nav button {
+    background: var(--panel);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  nav button.active { background: var(--blue); color: #06121f; border-color: var(--blue); font-weight: 600; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  section.tab { display: none; }
+  section.tab.active { display: block; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .card .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 1.45rem; font-weight: 700; margin-top: 4px; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  h2 { font-size: 1.05rem; margin: 18px 0 10px; color: var(--gold); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; font-size: 0.92rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .del {
+    background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; padding: 2px 6px;
+  }
+  form.row {
+    display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 20px;
+    background: var(--panel2); padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+  }
+  form.row input, form.row select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 10px; font-size: 0.92rem; flex: 1 1 120px; min-width: 0;
+  }
+  form.row button {
+    background: var(--green); color: #06121f; border: none; border-radius: 8px;
+    padding: 9px 16px; font-weight: 700; cursor: pointer; flex: 0 0 auto;
+  }
+  .bar-bg { background: var(--bg); border-radius: 6px; height: 10px; overflow: hidden; margin-top: 6px; }
+  .bar-fill { height: 100%; background: var(--green); border-radius: 6px; }
+  .goal-card { margin-bottom: 12px; }
+  .goal-meta { color: var(--muted); font-size: 0.82rem; margin-top: 6px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .toolbar button, .toolbar label {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 14px; font-size: 0.88rem; cursor: pointer;
+  }
+  canvas { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .empty { color: var(--muted); padding: 16px; text-align: center; font-size: 0.9rem; }
+  footer { text-align: center; color: var(--muted); font-size: 0.78rem; padding: 24px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>💰 Financial Command Center</h1>
+  <p>Net worth, cash flow, and goals — all data stays in this browser (localStorage)</p>
+</header>
+
+<nav>
+  <button data-tab="dashboard" class="active">Dashboard</button>
+  <button data-tab="accounts">Accounts</button>
+  <button data-tab="cashflow">Cash Flow</button>
+  <button data-tab="goals">Goals</button>
+  <button data-tab="data">Data</button>
+</nav>
+
+<main>
+  <!-- DASHBOARD -->
+  <section class="tab active" id="tab-dashboard">
+    <div class="cards">
+      <div class="card"><div class="label">Net Worth</div><div class="value" id="dashNet">$0</div></div>
+      <div class="card"><div class="label">Assets</div><div class="value pos" id="dashAssets">$0</div></div>
+      <div class="card"><div class="label">Liabilities</div><div class="value neg" id="dashLiab">$0</div></div>
+      <div class="card"><div class="label">Monthly Surplus</div><div class="value" id="dashSurplus">$0</div></div>
+    </div>
+    <h2>Net Worth History</h2>
+    <div class="toolbar"><button id="snapBtn">📸 Save snapshot of today's net worth</button></div>
+    <canvas id="chart" height="220"></canvas>
+    <h2>Goals at a Glance</h2>
+    <div id="dashGoals"></div>
+  </section>
+
+  <!-- ACCOUNTS -->
+  <section class="tab" id="tab-accounts">
+    <h2>Add Account</h2>
+    <form class="row" id="accountForm">
+      <input id="accName" placeholder="Name (e.g. Checking, 401k, House)" required>
+      <select id="accType">
+        <option value="cash">Cash</option>
+        <option value="investment">Investment</option>
+        <option value="retirement">Retirement</option>
+        <option value="realestate">Real Estate</option>
+        <option value="other-asset">Other Asset</option>
+        <option value="mortgage">Mortgage</option>
+        <option value="loan">Loan</option>
+        <option value="credit">Credit Card</option>
+        <option value="other-debt">Other Debt</option>
+      </select>
+      <input id="accBalance" type="number" step="0.01" placeholder="Balance ($)" required>
+      <button type="submit">Add</button>
+    </form>
+    <h2>Assets</h2>
+    <div id="assetTable"></div>
+    <h2>Liabilities</h2>
+    <div id="liabTable"></div>
+  </section>
+
+  <!-- CASH FLOW -->
+  <section class="tab" id="tab-cashflow">
+    <h2>Add Monthly Item</h2>
+    <form class="row" id="flowForm">
+      <input id="flowName" placeholder="Name (e.g. Salary, Mortgage payment)" required>
+      <select id="flowKind">
+        <option value="income">Income</option>
+        <option value="expense">Expense</option>
+      </select>
+      <input id="flowAmount" type="number" step="0.01" min="0" placeholder="Amount / month ($)" required>
+      <button type="submit">Add</button>
+    </form>
+    <div class="cards">
+      <div class="card"><div class="label">Income / mo</div><div class="value pos" id="flowIncome">$0</div></div>
+      <div class="card"><div class="label">Expenses / mo</div><div class="value neg" id="flowExpense">$0</div></div>
+      <div class="card"><div class="label">Surplus / mo</div><div class="value" id="flowSurplus">$0</div></div>
+    </div>
+    <h2>Income</h2>
+    <div id="incomeTable"></div>
+    <h2>Expenses</h2>
+    <div id="expenseTable"></div>
+  </section>
+
+  <!-- GOALS -->
+  <section class="tab" id="tab-goals">
+    <h2>Add Goal</h2>
+    <form class="row" id="goalForm">
+      <input id="goalName" placeholder="Name (e.g. House down payment)" required>
+      <input id="goalTarget" type="number" step="0.01" min="1" placeholder="Target ($)" required>
+      <input id="goalCurrent" type="number" step="0.01" min="0" placeholder="Saved so far ($)" value="0">
+      <input id="goalDate" type="date">
+      <button type="submit">Add</button>
+    </form>
+    <div id="goalList"></div>
+  </section>
+
+  <!-- DATA -->
+  <section class="tab" id="tab-data">
+    <h2>Your Data</h2>
+    <p style="color:var(--muted); font-size:0.9rem; line-height:1.5;">
+      Everything lives in this browser's localStorage — nothing is sent anywhere.
+      Export a JSON backup, or import one (e.g. data assembled from your past
+      financial analyses on your own machine). Import merges by replacing the
+      current data.
+    </p>
+    <div class="toolbar">
+      <button id="exportBtn">⬇️ Export JSON</button>
+      <label for="importFile">⬆️ Import JSON</label>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+      <button id="resetBtn">🗑 Reset all data</button>
+    </div>
+    <h2>JSON format</h2>
+    <pre style="background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:0.78rem; overflow-x:auto;">{
+  "accounts":  [{ "name": "Checking", "type": "cash", "balance": 5000 }],
+  "flows":     [{ "name": "Salary", "kind": "income", "amount": 8000 }],
+  "goals":     [{ "name": "Down payment", "target": 100000, "current": 25000, "date": "2027-06-01" }],
+  "snapshots": [{ "date": "2026-06-11", "netWorth": 250000 }]
+}</pre>
+  </section>
+</main>
+
+<footer>Single file, no dependencies. Part of the bickelbickel toybox.</footer>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'bb-finance-v1';
+  const ASSET_TYPES = ['cash', 'investment', 'retirement', 'realestate', 'other-asset'];
+  const TYPE_LABELS = {
+    cash: 'Cash', investment: 'Investment', retirement: 'Retirement',
+    realestate: 'Real Estate', 'other-asset': 'Other Asset',
+    mortgage: 'Mortgage', loan: 'Loan', credit: 'Credit Card', 'other-debt': 'Other Debt'
+  };
+
+  let state = load();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return normalize(parsed);
+      }
+    } catch (e) { /* corrupted data falls through to fresh state */ }
+    return { accounts: [], flows: [], goals: [], snapshots: [] };
+  }
+
+  function normalize(d) {
+    return {
+      accounts: Array.isArray(d.accounts) ? d.accounts.filter(a => a && a.name && isFinite(+a.balance))
+        .map(a => ({ name: String(a.name), type: TYPE_LABELS[a.type] ? a.type : 'other-asset', balance: +a.balance })) : [],
+      flows: Array.isArray(d.flows) ? d.flows.filter(f => f && f.name && isFinite(+f.amount))
+        .map(f => ({ name: String(f.name), kind: f.kind === 'income' ? 'income' : 'expense', amount: Math.abs(+f.amount) })) : [],
+      goals: Array.isArray(d.goals) ? d.goals.filter(g => g && g.name && +g.target > 0)
+        .map(g => ({ name: String(g.name), target: +g.target, current: Math.max(0, +g.current || 0), date: g.date || '' })) : [],
+      snapshots: Array.isArray(d.snapshots) ? d.snapshots.filter(s => s && s.date && isFinite(+s.netWorth))
+        .map(s => ({ date: String(s.date), netWorth: +s.netWorth }))
+        .sort((a, b) => a.date.localeCompare(b.date)) : []
+    };
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    render();
+  }
+
+  const fmt = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+  function totals() {
+    let assets = 0, liab = 0, income = 0, expense = 0;
+    for (const a of state.accounts) {
+      if (ASSET_TYPES.includes(a.type)) assets += a.balance; else liab += a.balance;
+    }
+    for (const f of state.flows) {
+      if (f.kind === 'income') income += f.amount; else expense += f.amount;
+    }
+    return { assets, liab, net: assets - liab, income, expense, surplus: income - expense };
+  }
+
+  // ---------- rendering ----------
+  function accountRows(list, mount) {
+    const el = document.getElementById(mount);
+    if (!list.length) { el.innerHTML = '<div class="empty">Nothing here yet.</div>'; return; }
+    el.innerHTML = '<table><tr><th>Name</th><th>Type</th><th class="num">Balance</th><th></th></tr>' +
+      list.map(a => `<tr><td>${esc(a.name)}</td><td>${TYPE_LABELS[a.type]}</td>` +
+        `<td class="num">${fmt(a.balance)}</td>` +
+        `<td><button class="del" data-del-account="${state.accounts.indexOf(a)}">✕</button></td></tr>`).join('') +
+      '</table>';
+  }
+
+  function flowRows(kind, mount) {
+    const el = document.getElementById(mount);
+    const list = state.flows.filter(f => f.kind === kind);
+    if (!list.length) { el.innerHTML = '<div class="empty">Nothing here yet.</div>'; return; }
+    el.innerHTML = '<table><tr><th>Name</th><th class="num">$ / month</th><th></th></tr>' +
+      list.map(f => `<tr><td>${esc(f.name)}</td><td class="num">${fmt(f.amount)}</td>` +
+        `<td><button class="del" data-del-flow="${state.flows.indexOf(f)}">✕</button></td></tr>`).join('') +
+      '</table>';
+  }
+
+  function goalCards(mount, withDelete) {
+    const el = document.getElementById(mount);
+    if (!state.goals.length) { el.innerHTML = '<div class="empty">No goals yet — add one!</div>'; return; }
+    const t = totals();
+    el.innerHTML = state.goals.map((g, i) => {
+      const pct = Math.min(100, g.current / g.target * 100);
+      let meta = `${fmt(g.current)} of ${fmt(g.target)} (${pct.toFixed(0)}%)`;
+      if (g.date) {
+        const months = Math.max(1, Math.round((new Date(g.date) - Date.now()) / (30.44 * 864e5)));
+        const needed = Math.max(0, g.target - g.current) / months;
+        meta += ` · ~${fmt(needed)}/mo needed by ${g.date}`;
+        if (t.surplus > 0 && needed > 0) {
+          meta += needed <= t.surplus ? ' ✅ fits your surplus' : ' ⚠️ exceeds your surplus';
+        }
+      }
+      return `<div class="card goal-card"><strong>${esc(g.name)}</strong>` +
+        (withDelete ? `<button class="del" style="float:right" data-del-goal="${i}">✕</button>` : '') +
+        `<div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>` +
+        `<div class="goal-meta">${meta}</div></div>`;
+    }).join('');
+  }
+
+  function drawChart() {
+    const c = document.getElementById('chart');
+    const ctx = c.getContext('2d');
+    const W = c.width = c.clientWidth * devicePixelRatio;
+    const H = c.height = 220 * devicePixelRatio;
+    ctx.clearRect(0, 0, W, H);
+    const snaps = state.snapshots;
+    ctx.font = `${12 * devicePixelRatio}px sans-serif`;
+    if (snaps.length < 2) {
+      ctx.fillStyle = '#8fa1b5';
+      ctx.textAlign = 'center';
+      ctx.fillText(snaps.length === 1 ? 'One snapshot saved — add another later to see a trend.' :
+        'Save snapshots over time to chart your net worth.', W / 2, H / 2);
+      return;
+    }
+    const pad = 50 * devicePixelRatio;
+    const vals = snaps.map(s => s.netWorth);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const span = (max - min) || 1;
+    const x = i => pad + (W - 2 * pad) * (i / (snaps.length - 1));
+    const y = v => H - pad - (H - 2 * pad) * ((v - min) / span);
+    ctx.strokeStyle = '#2e3a4a';
+    ctx.beginPath(); ctx.moveTo(pad, pad / 2); ctx.lineTo(pad, H - pad); ctx.lineTo(W - pad / 2, H - pad); ctx.stroke();
+    ctx.strokeStyle = '#3ddc84';
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.beginPath();
+    snaps.forEach((s, i) => i ? ctx.lineTo(x(i), y(s.netWorth)) : ctx.moveTo(x(0), y(s.netWorth)));
+    ctx.stroke();
+    ctx.fillStyle = '#3ddc84';
+    snaps.forEach((s, i) => { ctx.beginPath(); ctx.arc(x(i), y(s.netWorth), 3 * devicePixelRatio, 0, 7); ctx.fill(); });
+    ctx.fillStyle = '#8fa1b5';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmt(max), 4, y(max) + 4);
+    ctx.fillText(fmt(min), 4, y(min) + 4);
+    ctx.textAlign = 'center';
+    ctx.fillText(snaps[0].date, x(0), H - pad + 18 * devicePixelRatio);
+    ctx.fillText(snaps[snaps.length - 1].date, x(snaps.length - 1), H - pad + 18 * devicePixelRatio);
+  }
+
+  function render() {
+    const t = totals();
+    const set = (id, v, signed) => {
+      const el = document.getElementById(id);
+      el.textContent = fmt(v);
+      if (signed) el.className = 'value ' + (v >= 0 ? 'pos' : 'neg');
+    };
+    set('dashNet', t.net, true);
+    set('dashAssets', t.assets);
+    set('dashLiab', t.liab);
+    set('dashSurplus', t.surplus, true);
+    set('flowIncome', t.income);
+    set('flowExpense', t.expense);
+    set('flowSurplus', t.surplus, true);
+    accountRows(state.accounts.filter(a => ASSET_TYPES.includes(a.type)), 'assetTable');
+    accountRows(state.accounts.filter(a => !ASSET_TYPES.includes(a.type)), 'liabTable');
+    flowRows('income', 'incomeTable');
+    flowRows('expense', 'expenseTable');
+    goalCards('goalList', true);
+    goalCards('dashGoals', false);
+    drawChart();
+  }
+
+  function esc(s) {
+    return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---------- events ----------
+  document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
+    document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + b.dataset.tab));
+    drawChart();
+  }));
+
+  document.getElementById('accountForm').addEventListener('submit', e => {
+    e.preventDefault();
+    state.accounts.push({
+      name: document.getElementById('accName').value.trim(),
+      type: document.getElementById('accType').value,
+      balance: +document.getElementById('accBalance').value
+    });
+    e.target.reset();
+    save();
+  });
+
+  document.getElementById('flowForm').addEventListener('submit', e => {
+    e.preventDefault();
+    state.flows.push({
+      name: document.getElementById('flowName').value.trim(),
+      kind: document.getElementById('flowKind').value,
+      amount: Math.abs(+document.getElementById('flowAmount').value)
+    });
+    e.target.reset();
+    save();
+  });
+
+  document.getElementById('goalForm').addEventListener('submit', e => {
+    e.preventDefault();
+    state.goals.push({
+      name: document.getElementById('goalName').value.trim(),
+      target: +document.getElementById('goalTarget').value,
+      current: +document.getElementById('goalCurrent').value || 0,
+      date: document.getElementById('goalDate').value
+    });
+    e.target.reset();
+    save();
+  });
+
+  document.body.addEventListener('click', e => {
+    const t = e.target;
+    if (t.dataset.delAccount !== undefined) { state.accounts.splice(+t.dataset.delAccount, 1); save(); }
+    else if (t.dataset.delFlow !== undefined) { state.flows.splice(+t.dataset.delFlow, 1); save(); }
+    else if (t.dataset.delGoal !== undefined) { state.goals.splice(+t.dataset.delGoal, 1); save(); }
+  });
+
+  document.getElementById('snapBtn').addEventListener('click', () => {
+    const date = new Date().toISOString().slice(0, 10);
+    const net = totals().net;
+    const existing = state.snapshots.find(s => s.date === date);
+    if (existing) existing.netWorth = net;
+    else state.snapshots.push({ date, netWorth: net });
+    state.snapshots.sort((a, b) => a.date.localeCompare(b.date));
+    save();
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'finance-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  document.getElementById('importFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        state = normalize(JSON.parse(reader.result));
+        save();
+        alert('Import complete.');
+      } catch (err) {
+        alert('Could not parse that file as JSON: ' + err.message);
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    if (confirm('Delete ALL financial data stored in this browser?')) {
+      state = { accounts: [], flows: [], goals: [], snapshots: [] };
+      save();
+    }
+  });
+
+  window.addEventListener('resize', drawChart);
+  render();
+})();
+</script>
+</body>
+</html>

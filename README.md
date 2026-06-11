@@ -1,4 +1,11 @@
-# 🎮 Two games, one repo
+# 🎮 Two games (and a money app), one repo
+
+- 💰 **Financial Command Center** — a simple personal finance app: open
+  [`finance.html`](finance.html) (or `/finance.html` on the GitHub Pages site).
+  Track accounts (assets & liabilities), monthly cash flow, savings goals, and
+  net-worth snapshots with a trend chart. All data stays in your browser's
+  localStorage; JSON export/import for backups and for loading data assembled
+  from your own past financial analyses.
 
 - 🧸 **Squishopoly** — Squishmallows & Babies Monopoly for two players: open
   [`monopoly.html`](monopoly.html) (or `/monopoly.html` on the GitHub Pages site).
